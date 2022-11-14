@@ -1,0 +1,1 @@
+Code forked from https://github.com/yhenon/pytorch-retinanet. Copyright belongs to original author. No changes were made to the code.
