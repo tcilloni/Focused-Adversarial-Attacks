@@ -1,7 +1,56 @@
 import torch
+import yaml
+from typing import Callable
 
 
+with open('config.yml', 'r') as file:
+    config = yaml.safe_load(file)
+
+# mapping between standard deviations from the mean and percentage quantiles
 quantiles = {0: (.5), 1: (.5 + .68/2), 2: (.5 + .95/2), 3: (.5 + .997/2)}
+
+# functions ``f: x -> y`` to get logit predictions from models
+forward_functions = {
+    'frcnn': lambda model, x : model(x)[0]['scores']
+}
+
+
+def fa(model: torch.nn.Module, image: torch.Tensor, steps: int, 
+        epsilon: float, threshold: float, forward_fn: Callable):
+    '''
+    _summary_
+
+    Args:
+        model (torch.nn.Module): _description_
+        image (torch.Tensor): _description_
+        steps (int): _description_
+        epsilon (float): _description_
+        threshold (float): _description_
+        forward_fn (Callable): _description_
+
+    Returns:
+        _type_: _description_
+    '''
+    # activate gradients
+    mask = torch.zeros_like(image, requires_grad=True, device=config['device'])
+    image.requires_grad = True
+    eps = epsilon / steps
+
+    for _ in range(steps):
+        # compute gradients
+        out = forward_fn(model, mask + image)
+        loss = selective_l1_loss(out, threshold=threshold)
+        model.zero_grad()
+        loss.backward()
+
+        # update the mask
+        mask.data -= mask.grad.sign() * eps
+
+        # prepare for next iteration
+        mask.grad.data.zero_()
+        image.grad.data.zero_()
+
+    return (image + mask).detach()
 
 
 def find_threshold(activations: torch.tensor, standard_deviations: int = 1) -> float:
