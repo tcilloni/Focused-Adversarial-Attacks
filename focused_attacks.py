@@ -16,20 +16,21 @@ forward_functions = {
 
 
 def fa(model: torch.nn.Module, image: torch.Tensor, steps: int, 
-        epsilon: float, threshold: float, forward_fn: Callable):
+        epsilon: float, threshold: float, forward_fn: Callable) -> torch.Tensor:
     '''
-    _summary_
+    Focused Attacks (FA) algorithm main function.
+    This function cloaks an image and returns it.
 
     Args:
-        model (torch.nn.Module): _description_
-        image (torch.Tensor): _description_
-        steps (int): _description_
-        epsilon (float): _description_
-        threshold (float): _description_
-        forward_fn (Callable): _description_
+        model (torch.nn.Module): object detector
+        image (torch.Tensor): original tensor image to cloak
+        steps (int): algorithmic iterations
+        epsilon (float): maximum cumulative L1 distrortion (adv budget)
+        threshold (float): focusing threshold
+        forward_fn (Callable): function to get the predictions from the passed model
 
     Returns:
-        _type_: _description_
+        torch.Tensor: cloaked image
     '''
     # activate gradients
     mask = torch.zeros_like(image, requires_grad=True, device=config['device'])
