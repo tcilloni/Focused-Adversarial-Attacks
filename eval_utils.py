@@ -1,7 +1,17 @@
 import os, shutil
 import fiftyone as fo
+import numpy.typing as npt
+import numpy as np
+from typing import Tuple
+import torch
+from models.ssd300.utils import generate_dboxes, Encoder
 
-# load_coco_dataset_in_fiftyone
+
+coco_classes = {0: '0', 1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorcycle', 5: 'airplane', 6: 'bus', 7: 'train', 8: 'truck', 9: 'boat', 10: 'traffic light', 11: 'fire hydrant', 12: '12', 13: 'stop sign', 14: 'parking meter', 15: 'bench', 16: 'bird', 17: 'cat', 18: 'dog', 19: 'horse', 20: 'sheep', 21: 'cow', 22: 'elephant', 23: 'bear', 24: 'zebra', 25: 'giraffe', 26: '26', 27: 'backpack', 28: 'umbrella', 29: '29', 30: '30', 31: 'handbag', 32: 'tie', 33: 'suitcase', 34: 'frisbee', 35: 'skis', 36: 'snowboard', 37: 'sports ball', 38: 'kite', 39: 'baseball bat', 40: 'baseball glove', 41: 'skateboard', 42: 'surfboard', 43: 'tennis racket', 44: 'bottle', 45: '45', 46: 'wine glass', 47: 'cup', 48: 'fork', 49: 'knife', 50: 'spoon', 51: 'bowl', 52: 'banana', 53: 'apple', 54: 'sandwich', 55: 'orange', 56: 'broccoli', 57: 'carrot', 58: 'hot dog', 59: 'pizza', 60: 'donut', 61: 'cake', 62: 'chair', 63: 'couch', 64: 'potted plant', 65: 'bed', 66: '66', 67: 'dining table', 68: '68', 69: '69', 70: 'toilet', 71: '71', 72: 'tv', 73: 'laptop', 74: 'mouse', 75: 'remote', 76: 'keyboard', 77: 'cell phone', 78: 'microwave', 79: 'oven', 80: 'toaster', 81: 'sink', 82: 'refrigerator', 83: '83', 84: 'book', 85: 'clock', 86: 'vase', 87: 'scissors', 88: 'teddy bear', 89: 'hair drier', 90: 'toothbrush'}
+pascal_classes = {0: 'background', 1: 'person', 2: 'bicycle', 3: 'car', 4: 'motorbike', 5: 'aeroplane', 6: 'bus', 7: 'train', 9: 'boat', 16: 'bird', 17: 'cat', 18: 'dog', 19: 'horse', 20: 'sheep', 21: 'cow', 44: 'bottle', 62: 'chair', 63: 'sofa', 64: 'pottedplant', 67: 'diningtable', 72: 'tvmonitor', 73: 'tvmonitor'}
+ssd300_encoder = Encoder(generate_dboxes(model='ssd'))
+
+
 def fiftyone_coco_dataset(dir: str, use_cached: bool = False, max_samples: int = None):
     if dir in fo.list_datasets():
         if use_cached:
@@ -22,7 +32,6 @@ def fiftyone_coco_dataset(dir: str, use_cached: bool = False, max_samples: int =
     return coco_dataset
 
 
-
 def fiftyone_pascal_dataset(dir: str, use_cached: bool = False, max_samples: int = None):
     if dir in fo.list_datasets():
         if use_cached:
@@ -39,12 +48,6 @@ def fiftyone_pascal_dataset(dir: str, use_cached: bool = False, max_samples: int
     dataset.persistent = True
 
     return dataset
-
-
-
-# def delete_all_cached_datasets():
-#     for dataset_name in fo.list_datasets():
-#         fo.delete_dataset(dataset_name)
 
 
 def prepare_coco_dataset_folder(src: str, dst: str):
@@ -77,4 +80,77 @@ def prepare_pascal_dataset_folder(src: str, dst: str):
     dst_fnames = [f'{dst}/data/{fname}' for fname in img_fnames]
 
     return src_fnames, dst_fnames
+
+
+def get_output_for_postprocessing(model, model_name, image) \
+        -> Tuple[npt.NDArray[np.uint], npt.NDArray[np.uint], npt.NDArray[np.uint]]:
+    pad_h, pad_w = 0, 0
+
+    # special case for retinanet, which actually has padding
+    if model_name == 'retinanet':
+        image, (_, _, pad_h, pad_w) = image
+    
+    # get model-specific predictions and move to CPU
+    labels, scores, bboxes = label_score_box(model, model_name, image)
+    scores = scores.cpu().numpy()
+    labels = labels.cpu().numpy()
+    bboxes = bboxes.cpu().numpy()
+    
+    # special case for detr, which is almost ready
+    if model_name == 'detr':
+        bboxes[:, 0] = bboxes[:, 0] - (bboxes[:, 2] / 2)
+        bboxes[:, 1] = bboxes[:, 1] - (bboxes[:, 3] / 2)
+        return labels, scores, bboxes
+    
+    # absolute to relative dimensions
+    if model_name in ['retinanet', 'frcnn']:
+        bboxes[:, [0,2]] /= (image.shape[2] - pad_w)
+        bboxes[:, [1,3]] /= (image.shape[1] - pad_h)
+
+    bboxes[:, 2] -= bboxes[:, 0]
+    bboxes[:, 3] -= bboxes[:, 1]
+    
+    return labels, scores, bboxes
+
+
+def label_score_box(model, model_name, image):
+    with torch.no_grad():
+        if model_name == 'frcnn':
+            out = model(image)[0]
+            return out['labels'], out['scores'], out['boxes']
+        
+        if model_name == 'retinanet':
+            out = model(image)
+            return out[0], out[1], out[2]
+
+        if model_name == 'ssd300':
+            locs, probs = model(image)
+            out = ssd300_encoder.decode_batch(locs, probs, nms_threshold=0.45)[0]
+            return out[1], out[2], out[0]
+        
+        if model_name == 'detr':
+            out = model(image)[0]
+            logits = out['logits'].softmax(-1)[:,:-1]
+            labels = logits.argmax(1)
+            scores = torch.take_along_dim(logits, labels[:,None], 1)
+            return labels, scores, out['pred_boxes']
+
+    raise Exception(f'Model {model_name} not recognized')
+
+
+def produce_fiftyone_detection(dataset: str, labels: npt.NDArray[np.uint8],
+        scores: npt.NDArray[np.float32],  bboxes: npt.NDArray[np.float32]) -> fo.Detections:
+    classes = coco_classes if dataset == 'coco' else pascal_classes
+    detections = []
+
+    if len(scores) == 0:
+        return fo.Detections(detections=[])
+
+    # build detections list
+    for label, score, bbox in zip(labels, scores, bboxes):
+        if label in classes:
+            detection = fo.Detection(label=classes[label], bounding_box=bbox.tolist(), confidence=float(score))
+            detections.append(detection)
+    
+    return fo.Detections(detections=detections)
 
