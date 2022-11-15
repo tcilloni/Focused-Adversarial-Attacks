@@ -24,7 +24,7 @@ de_standardize_T = T.Compose([
 
 # pre-defined transforms
 read_transforms = {
-    'frcnn': T.Compose([T.ToTensor(), standardize_T])
+    'frcnn': T.Compose([T.ToTensor()])
 }
 
 
@@ -49,7 +49,7 @@ def save_numpy_image(fname: str, image: npt.NDArray[np.uint8]) -> None:
         fname (str): relative or absolute image filepath
         image (np.array): numpy array of integer values
     '''
-    Image.fromarray(image).save(fname)
+    Image.fromarray(image.transpose((1,2,0))).save(fname)
 
 
 def PIL_image_to_tensor(image: Image, standardize: bool = True, size: int = None, transform: T = None) -> torch.Tensor:
@@ -95,7 +95,6 @@ def tensor_to_numpy(image: torch.Tensor, was_standardized: bool = True) -> npt.N
         image = de_standardize_T(image)
 
     image = image.cpu().squeeze(0).numpy()
-    # image = image.transpose((1,2,0)) * std + mean
     image = np.clip(image, 0, 1)
     image = (image * 255.).astype(np.uint8)
 
