@@ -22,6 +22,11 @@ de_standardize_T = T.Compose([
 ])
 
 
+# pre-defined transforms
+read_transforms = {
+    'frcnn': T.Compose([T.ToTensor(), standardize_T])
+}
+
 
 def read_image(fname: str) -> Image:
     '''
@@ -47,12 +52,11 @@ def save_numpy_image(fname: str, image: npt.NDArray[np.uint8]) -> None:
     Image.fromarray(image).save(fname)
 
 
-def PIL_image_to_tensor(image: Image, standardize: bool = True, size: int = None) -> torch.Tensor:
+def PIL_image_to_tensor(image: Image, standardize: bool = True, size: int = None, transform: T = None) -> torch.Tensor:
     '''
     Convert PIL image to torch tensor.
     The image is returned normalized, or standardized if the flag is raised.
     Standardization is done with ImageNet's statistics.
-
 
     Args:
         image (Image): _description_
@@ -62,13 +66,16 @@ def PIL_image_to_tensor(image: Image, standardize: bool = True, size: int = None
     Returns:
         torch.Tensor: tensor image of shape [1,3,h,w]
     '''
-    # can also try
-    # if size T.Resize(size),
-    transform = T.Compose([
-        size and T.Resize(size),
-        T.ToTensor(),
-        standardize and standardize_T
-    ])
+    if not transform:
+        transforms = [T.ToTensor()]
+
+        if size:
+            transforms.append(T.Resize(size))
+
+        if standardize:
+            transforms.append(standardize_T)
+
+        transform = T.Compose(transforms)
 
     return transform(image).unsqueeze(0).to(config['device'])
 
