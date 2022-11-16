@@ -6,7 +6,7 @@ from models.ssd300.utils import generate_dboxes, Encoder
 
 
 class DetectionsProducer():
-    def __init__(self, model:torch.Module, model_name:str = None, 
+    def __init__(self, model:torch.nn.Module, model_name:str = None, 
             label_score_box_fn:Callable = None, bbox_postprocess_fn:Callable = None) -> None:
         '''
         Callable object to produce detections in format <labels, scores, bboxes>.
@@ -69,7 +69,11 @@ class DetectionsProducer():
         labels, scores, bboxes = self.label_score_box(self.model, data)
 
         if self.bboxes_are_absolute:
-            bboxes = absolute_to_relative_bboxes(bboxes)
+            # reformat data to include paddings if missing
+            if type(data) not in [list, tuple]: data = (data, (0,0))
+            (_,_, h, w), (pad_w, pad_h) = data[0].shape, data[1]
+
+            bboxes = absolute_to_relative_bboxes(bboxes, w, h, pad_w, pad_h)
 
         bboxes = self.bbox_postprocess(bboxes)
 
@@ -116,10 +120,7 @@ def ssd300_label_score_box(model, image):
 ''' 
     Bounding Boxes Post-processing 
 '''
-def absolute_to_relative_bboxes(bboxes, params):
-    if type(params) not in [list, tuple]: params = (params, (0,0))
-    (_, h, w), (pad_w, pad_h) = params[0].shape, params[1]
-    
+def absolute_to_relative_bboxes(bboxes, w, h, pad_w, pad_h):
     bboxes[:, [0,2]] /= (w - pad_w)
     bboxes[:, [1,3]] /= (h - pad_h)
 

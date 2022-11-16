@@ -24,6 +24,7 @@ def fiftyone_coco_dataset(dir: str, use_cached: bool = False, max_samples: int =
         include_id = True,
         label_field = '',
         max_samples = max_samples,
+        shuffle=False,
         name = dir
     )
     coco_dataset.persistent = True
