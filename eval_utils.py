@@ -2,8 +2,6 @@ import os, shutil
 import fiftyone as fo
 import numpy.typing as npt
 import numpy as np
-from typing import Tuple
-import torch
 from models.ssd300.utils import generate_dboxes, Encoder
 
 

@@ -1,14 +1,9 @@
 import torch
 import torchvision.transforms as T
-
 import numpy as np
 import numpy.typing as npt
-
 from PIL import Image
-import cv2
-
 import yaml
-from typing import Tuple, List, Dict
 
 
 with open('config.yml', 'r') as file:
