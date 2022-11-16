@@ -1,12 +1,34 @@
 import torch
 import numpy.typing as npt
 import numpy as np
-from typing import Tuple
+from typing import Tuple, Callable, Union
 from models.ssd300.utils import generate_dboxes, Encoder
 
 
 class DetectionsProducer():
-    def __init__(self, model, model_name, label_score_box_fn=None, bbox_postprocess_fn=None) -> None:
+    def __init__(self, model:torch.Module, model_name:str = None, 
+            label_score_box_fn:Callable = None, bbox_postprocess_fn:Callable = None) -> None:
+        '''
+        Callable object to produce detections in format <labels, scores, bboxes>.
+        The constructor requires the model to use to produce detections, and either:
+        1) a model name to use a pre-defined set of post-processing function
+        2) a pair of functions to post-process the model's outputs
+
+        In the latter case, the first function is used to get raw labels, scores, and
+        bounding boxes for each detected image. These must be in a numpy array and have
+        shape [n,4] if bounding boxes, [n] otherwise.
+        The second function converts the bounding boxes in FiftyOne's format, which is
+        <x1, y1, width, height>, in percentage values of the image's size. If the format
+        of the bounding boxes returned by the first function is different, this function
+        should take care of converting to 51 format. Otherwise, just specify a lambda
+        function that returns whatever input it's given.
+
+        Args:
+            model (torch.Module): pytorch model to run predictions on
+            model_name (str, optional): one of detr, retinanet, frcnn, ssd300. Defaults to None.
+            label_score_box_fn (Callable, optional): to produce model's outputs. Defaults to None.
+            bbox_postprocess_fn (Callable, optional): to post-process bboxes. Defaults to None.
+        '''
         self.model = model
         self.bboxes_are_absolute = model_name in ['frcnn', 'retinanet']
 
@@ -17,8 +39,33 @@ class DetectionsProducer():
             self.label_score_box = label_score_box_functions[model_name]
             self.bbox_postprocess = bbox_postprocessing_functions[model_name]
 
-    def __call__(self, data) \
+
+    def __call__(self, data: Union[npt.NDArray[np.float32], Tuple[npt.NDArray[np.float32], int, int]]) \
         -> Tuple[npt.NDArray[np.uint8], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
+        '''
+        Callable object to produce detections in format <labels, scores, bboxes>.
+        The constructor requires the model to use to produce detections, and either:
+        1) a model name to use a pre-defined set of post-processing function
+        2) a pair of functions to post-process the model's outputs
+
+        In the latter case, the first function is used to get raw labels, scores, and
+        bounding boxes for each detected image. These must be in a numpy array and have
+        shape [n,4] if bounding boxes, [n] otherwise.
+        The second function converts the bounding boxes in FiftyOne's format, which is
+        <x1, y1, width, height>, in percentage values of the image's size. If the format
+        of the bounding boxes returned by the first function is different, this function
+        should take care of converting to 51 format. Otherwise, just specify a lambda
+        function that returns whatever input it's given.
+
+        Args:
+            data (Union[npt.NDArray[np.float32], Tuple[npt.NDArray[np.float32], int, int]]): \
+                either a numpy image or a tuple of image and two ints to specify the padding
+                
+        Returns:
+            npt.NDArray[np.uint8]: labels in coco format of the detections
+            npt.NDArray[np.float32]: confidence scores for the detections
+            npt.NDArray[np.float32]: bounding boxes of the detections in 51 format
+        '''
         labels, scores, bboxes = self.label_score_box(self.model, data)
 
         if self.bboxes_are_absolute:
@@ -89,6 +136,9 @@ def x1_y1_x2_y2__to__x1_y1_w_h(bboxes):
     return bboxes
 
 
+''' 
+    For cleaner code 
+'''
 label_score_box_functions = {
     'frcnn':     frcnn_label_score_box,
     'retinanet': retinanet_label_score_box,
