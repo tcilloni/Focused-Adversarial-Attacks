@@ -81,19 +81,26 @@ def prepare_pascal_dataset_folder(src: str, dst: str):
     return src_fnames, dst_fnames
 
 
-def produce_fiftyone_detection(dataset: str, labels: npt.NDArray[np.uint8],
-        scores: npt.NDArray[np.float32],  bboxes: npt.NDArray[np.float32]) -> fo.Detections:
-    classes = coco_classes if dataset == 'coco' else pascal_classes
-    detections = []
+class FiftyOneDetectionsGenerator():
+    def __init__(self, dataset: str) -> None:
+        self.classes = coco_classes if dataset == 'coco' else pascal_classes
 
-    if len(scores) == 0:
-        return fo.Detections(detections=[])
+    def __call__(self, labels: npt.NDArray[np.uint8],
+            scores: npt.NDArray[np.float32],  bboxes: npt.NDArray[np.float32]) -> fo.Detections:
+        detections = []
 
-    # build detections list
-    for label, score, bbox in zip(labels, scores, bboxes):
-        if label in classes:
-            detection = fo.Detection(label=classes[label], bounding_box=bbox.tolist(), confidence=float(score))
+        if len(scores) == 0:
+            return fo.Detections(detections=[])
+
+        # build detections list
+        for label, score, bbox in zip(labels, scores, bboxes):
+            if label not in self.classes:
+                continue
+
+            # reformat to ensure compatibility w/ fiftyone
+            label, bbox, score = self.classes[label], bbox.tolist(), float(score)
+            detection = fo.Detection(label=label, bounding_box=bbox, confidence=score)
             detections.append(detection)
-    
-    return fo.Detections(detections=detections)
+        
+        return fo.Detections(detections=detections)
 
