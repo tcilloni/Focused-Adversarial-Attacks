@@ -82,62 +82,6 @@ def prepare_pascal_dataset_folder(src: str, dst: str):
     return src_fnames, dst_fnames
 
 
-def get_output_for_postprocessing(model, model_name, image) \
-        -> Tuple[npt.NDArray[np.uint], npt.NDArray[np.uint], npt.NDArray[np.uint]]:
-    pad_h, pad_w = 0, 0
-
-    # special case for retinanet, which actually has padding
-    if model_name == 'retinanet':
-        image, (_, _, pad_h, pad_w) = image
-    
-    # get model-specific predictions and move to CPU
-    labels, scores, bboxes = label_score_box(model, model_name, image)
-    scores = scores.cpu().numpy()
-    labels = labels.cpu().numpy()
-    bboxes = bboxes.cpu().numpy()
-    
-    # special case for detr, which is almost ready
-    if model_name == 'detr':
-        bboxes[:, 0] = bboxes[:, 0] - (bboxes[:, 2] / 2)
-        bboxes[:, 1] = bboxes[:, 1] - (bboxes[:, 3] / 2)
-        return labels, scores, bboxes
-    
-    # absolute to relative dimensions
-    if model_name in ['retinanet', 'frcnn']:
-        bboxes[:, [0,2]] /= (image.shape[2] - pad_w)
-        bboxes[:, [1,3]] /= (image.shape[1] - pad_h)
-
-    bboxes[:, 2] -= bboxes[:, 0]
-    bboxes[:, 3] -= bboxes[:, 1]
-    
-    return labels, scores, bboxes
-
-
-def label_score_box(model, model_name, image):
-    with torch.no_grad():
-        if model_name == 'frcnn':
-            out = model(image)[0]
-            return out['labels'], out['scores'], out['boxes']
-        
-        if model_name == 'retinanet':
-            out = model(image)
-            return out[0], out[1], out[2]
-
-        if model_name == 'ssd300':
-            locs, probs = model(image)
-            out = ssd300_encoder.decode_batch(locs, probs, nms_threshold=0.45)[0]
-            return out[1], out[2], out[0]
-        
-        if model_name == 'detr':
-            out = model(image)[0]
-            logits = out['logits'].softmax(-1)[:,:-1]
-            labels = logits.argmax(1)
-            scores = torch.take_along_dim(logits, labels[:,None], 1)
-            return labels, scores, out['pred_boxes']
-
-    raise Exception(f'Model {model_name} not recognized')
-
-
 def produce_fiftyone_detection(dataset: str, labels: npt.NDArray[np.uint8],
         scores: npt.NDArray[np.float32],  bboxes: npt.NDArray[np.float32]) -> fo.Detections:
     classes = coco_classes if dataset == 'coco' else pascal_classes
