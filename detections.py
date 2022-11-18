@@ -141,7 +141,8 @@ def retinanet_label_score_box(model: torch.nn.Module, image: torch.Tensor
     '''
     with torch.no_grad():
         out = model(image)
-        out[1].cpu().apply_(retinanet_to_coco_idxs.get)
+        out[1] = out[1].cpu()
+        out[1].apply_(retinanet_to_coco_idxs.get)
         return to_cpu(out[1], out[0], out[2])
 
 def ssd300_label_score_box(model: torch.nn.Module, image: torch.Tensor
@@ -152,7 +153,7 @@ def ssd300_label_score_box(model: torch.nn.Module, image: torch.Tensor
     with torch.no_grad():
         locs, probs = model(image)
         out = ssd300_encoder.decode_batch(locs, probs, nms_threshold=0.45)[0]
-        out[1].cpu().apply_(ssd300_to_coco_idxs.get)
+        out[1].apply_(ssd300_to_coco_idxs.get)
         return to_cpu(out[1], out[2], out[0])
 
 
