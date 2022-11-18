@@ -18,14 +18,13 @@ def fiftyone_coco_dataset(dir: str, use_cached: bool = False, max_samples: int =
             fo.delete_dataset(dir)
     
     coco_dataset = fo.Dataset.from_dir(
+        name = dir,
         dataset_type = fo.types.COCODetectionDataset,
         data_path = f'{dir}/images/val2017',
         labels_path = f'{dir}/images/labels.json',
         include_id = True,
-        label_field = '',
         max_samples = max_samples,
         shuffle=False,
-        name = dir
     )
     coco_dataset.persistent = True
     return coco_dataset
@@ -39,9 +38,10 @@ def fiftyone_pascal_dataset(dir: str, use_cached: bool = False, max_samples: int
             fo.delete_dataset(dir)
 
     dataset = fo.Dataset.from_dir(
+        name = dir,
         dataset_dir = dir,
         dataset_type = fo.types.VOCDetectionDataset,
-        name = dir,
+        shuffle=False,
         max_samples = max_samples
     )
     dataset.persistent = True

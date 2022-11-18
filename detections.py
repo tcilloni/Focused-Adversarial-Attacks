@@ -66,14 +66,14 @@ class DetectionsProducer():
             npt.NDArray[np.float32]: confidence scores for the detections
             npt.NDArray[np.float32]: bounding boxes of the detections in 51 format
         '''
-        labels, scores, bboxes = self.label_score_box(self.model, data)
+        # reformat data to include paddings if missing (retinanet special case)
+        if type(data) not in [list, tuple]: data = (data, (0,0))
+
+        labels, scores, bboxes = self.label_score_box(self.model, data[0])
 
         if self.bboxes_are_absolute:
-            # reformat data to include paddings if missing
-            if type(data) not in [list, tuple]: data = (data, (0,0))
-            (_,_, h, w), (pad_w, pad_h) = data[0].shape, data[1]
-
-            bboxes = absolute_to_relative_bboxes(bboxes, w, h, pad_w, pad_h)
+            (_,_, h, w), (pad_h, pad_w) = data[0].shape, data[1]
+            bboxes = absolute_to_relative_bboxes(bboxes, h, w, pad_h, pad_w)
 
         bboxes = self.bbox_postprocess(bboxes)
 
@@ -84,6 +84,8 @@ class DetectionsProducer():
     Functions to produce labels, scores and boxes (unprocessed)
 '''
 ssd300_encoder = Encoder(generate_dboxes(model='ssd'))
+ssd300_to_coco_idxs = {0: 0, 1: 1, 2: 2, 3: 3, 4: 4, 5: 5, 6: 6, 7: 7, 8: 8, 9: 9, 10: 10, 11: 11, 12: 13, 13: 14, 14: 15, 15: 16, 16: 17, 17: 18, 18: 19, 19: 20, 20: 21, 21: 22, 22: 23, 23: 24, 24: 25, 25: 27, 26: 28, 27: 31, 28: 32, 29: 33, 30: 34, 31: 35, 32: 36, 33: 37, 34: 38, 35: 39, 36: 40, 37: 41, 38: 42, 39: 43, 40: 44, 41: 46, 42: 47, 43: 48, 44: 49, 45: 50, 46: 51, 47: 52, 48: 53, 49: 54, 50: 55, 51: 56, 52: 57, 53: 58, 54: 59, 55: 60, 56: 61, 57: 62, 58: 63, 59: 64, 60: 65, 61: 67, 62: 70, 63: 72, 64: 73, 65: 74, 66: 75, 67: 76, 68: 77, 69: 78, 70: 79, 71: 80, 72: 81, 73: 82, 74: 84, 75: 85, 76: 86, 77: 87, 78: 88, 79: 89, 80: 90}
+retinanet_to_coco_idxs =  {0: 1, 1: 2, 2: 3, 3: 4, 4: 5, 5: 6, 6: 7, 7: 8, 8: 9, 9: 10, 10: 11, 11: 13, 12: 14, 13: 15, 14: 16, 15: 17, 16: 18, 17: 19, 18: 20, 19: 21, 20: 22, 21: 23, 22: 24, 23: 25, 24: 27, 25: 28, 26: 31, 27: 32, 28: 33, 29: 34, 30: 35, 31: 36, 32: 37, 33: 38, 34: 39, 35: 40, 36: 41, 37: 42, 38: 43, 39: 44, 40: 46, 41: 47, 42: 48, 43: 49, 44: 50, 45: 51, 46: 52, 47: 53, 48: 54, 49: 55, 50: 56, 51: 57, 52: 58, 53: 59, 54: 60, 55: 61, 56: 62, 57: 63, 58: 64, 59: 65, 60: 67, 61: 70, 62: 72, 63: 73, 64: 74, 65: 75, 66: 76, 67: 77, 68: 78, 69: 79, 70: 80, 71: 81, 72: 82, 73: 84, 74: 85, 75: 86, 76: 87, 77: 88, 78: 89, 79: 90}
 
 def to_cpu(labels: npt.NDArray[np.uint8], scores: npt.NDArray[np.float32], bboxes: npt.NDArray[np.float32]) \
     -> Tuple[npt.NDArray[np.uint8], npt.NDArray[np.float32], npt.NDArray[np.float32]]:
@@ -99,28 +101,30 @@ def frcnn_label_score_box(model, image):
 
 def detr_label_score_box(model, image):
     with torch.no_grad():
-        out = model(image)[0]
-        logits = out['logits'].softmax(-1)[:,:-1]
+        out = model(image)
+        logits = out['logits'].softmax(-1)[0,:,:-1]
         labels = logits.argmax(1)
         scores = torch.take_along_dim(logits, labels[:,None], 1)
-        return to_cpu(labels, scores, out['pred_boxes'])
+        return to_cpu(labels, scores, out['pred_boxes'][0])
 
 def retinanet_label_score_box(model, image):
     with torch.no_grad():
         out = model(image)
-        return to_cpu(out[0], out[1], out[2])
+        out[1].cpu().apply_(retinanet_to_coco_idxs.get)
+        return to_cpu(out[1], out[0], out[2])
 
 def ssd300_label_score_box(model, image):
     with torch.no_grad():
         locs, probs = model(image)
         out = ssd300_encoder.decode_batch(locs, probs, nms_threshold=0.45)[0]
+        out[1].cpu().apply_(ssd300_to_coco_idxs.get)
         return to_cpu(out[1], out[2], out[0])
 
 
 ''' 
     Bounding Boxes Post-processing 
 '''
-def absolute_to_relative_bboxes(bboxes, w, h, pad_w, pad_h):
+def absolute_to_relative_bboxes(bboxes, h, w, pad_h, pad_w):
     bboxes[:, [0,2]] /= (w - pad_w)
     bboxes[:, [1,3]] /= (h - pad_h)
 

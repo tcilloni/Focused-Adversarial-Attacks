@@ -25,7 +25,7 @@ class Model(torch.nn.Module):
 
             self.model = model.resnet50(num_classes=80, pretrained=True, 
                     model_dir=args['model_dir']).to(DEVICE)
-            self.model.load_state_dict(torch.load(args['state']))
+            self.model.load_state_dict(torch.load(args['state'], map_location=DEVICE))
             self.model.freeze_bn()    # freeze batch-norm layers
         
         if model_name == 'detr':
@@ -36,7 +36,7 @@ class Model(torch.nn.Module):
                 args['state'] = 'models/SSD300.pth'
 
             self.model = SSD(backbone=ResNet(), num_classes=81).to(DEVICE)
-            checkpoint = torch.load(args['state'])
+            checkpoint = torch.load(args['state'], map_location=DEVICE)
             self.model.load_state_dict(checkpoint["model_state_dict"])
 
         self.model.training = False

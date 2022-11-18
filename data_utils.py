@@ -19,7 +19,7 @@ de_standardize_T = T.Compose([
 read_transforms = {
     'frcnn': T.ToTensor(),
     'detr': T.Compose([T.Resize(800), T.ToTensor(), standardize_T]),
-    'ssd300': T.Compose([T.Resize(320), T.ToTensor(), standardize_T]),
+    'ssd300': T.Compose([T.Resize((300,300)), T.ToTensor(), standardize_T]),
     'retinanet': T.Compose([T.ToTensor(), 
         T.Resize(size=608, max_size=1024), standardize_T]),
 }
@@ -62,14 +62,15 @@ class ImageHandler():
 
     def load(self, fname: str) -> Image:
         image = read_image(fname)
-        image = self.transform(image)
-        _, _, self.w, self.h = image.shape
+        image = self.transform(image).unsqueeze(0).to(DEVICE)
+        _, _, self.h, self.w = image.shape
 
         # special case for retinanet
         if self.pad32:
-            pad_w = 32 - self.w % 32
-            pad_h = 32 - self.h % 32
-            image = F.pad(image, (0, pad_w, 0, pad_h), 'constant', 0)
+            pad_w = 32 - self.w % 32 if self.w % 32 != 0 else 0
+            pad_h = 32 - self.h % 32 if self.h % 32 != 0 else 0
+            image = T.Pad((0,0,pad_w,pad_h))(image) # pad left, top, right, bottom
+            return image, (pad_h, pad_w)
         
         return image
 
