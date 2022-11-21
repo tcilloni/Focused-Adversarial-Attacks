@@ -1,39 +1,39 @@
 import torch
-import yaml
+from const import DEVICE
+import numpy.typing as npt
 from typing import Callable
+from scipy.stats import gamma, kstest
 
 
-with open('config.yml', 'r') as file:
-    config = yaml.safe_load(file)
-
-# mapping between standard deviations from the mean and percentage quantiles
-quantiles = {0: (.5), 1: (.5 + .68/2), 2: (.5 + .95/2), 3: (.5 + .997/2)}
-
-# functions ``f: x -> y`` to get logit predictions from models
-forward_functions = {
-    'frcnn': lambda model, x : model(x)[0]['scores']
-}
-
-
-def fa(model: torch.nn.Module, image: torch.Tensor, steps: int, 
-        epsilon: float, threshold: float, forward_fn: Callable) -> torch.Tensor:
+def fa(model: torch.nn.Module, image: torch.Tensor, steps: int, epsilon: float,
+        forward_fn: Callable, threshold: float = 0, dynamic: bool = False,
+        percentile: float = 0.95) -> torch.Tensor:
     '''
     Focused Attacks (FA) algorithm main function.
     This function cloaks an image and returns it.
+    By default it requires a threshold parameter; however, one can alternatively
+    set ``dynamic`` to true and use a percentile and distribution based approach
+    to determine the best thresholding value.
 
     Args:
         model (torch.nn.Module): object detector
         image (torch.Tensor): original tensor image to cloak
         steps (int): algorithmic iterations
         epsilon (float): maximum cumulative L1 distrortion (adv budget)
-        threshold (float): focusing threshold
         forward_fn (Callable): function to get the predictions from the passed model
+        threshold (float, Optional): focusing threshold. Defaults to 0.
+        percentile (float, Optional): percentage of activations to filter out. Defaults to 0.
 
     Returns:
         torch.Tensor: cloaked image
     '''
+    if dynamic:
+        with torch.no_grad():
+            out = forward_fn(model, image)
+            threshold = torch.quantile(out.flatten(), percentile).item()
+
     # activate gradients
-    mask = torch.zeros_like(image, requires_grad=True, device=config['device'])
+    mask = torch.zeros_like(image, requires_grad=True, device=DEVICE)
     image.requires_grad = True
     eps = epsilon / steps
 
@@ -45,7 +45,7 @@ def fa(model: torch.nn.Module, image: torch.Tensor, steps: int,
         loss.backward()
 
         # update the mask
-        mask.data -= mask.grad.sign() * eps
+        mask.data -= mask.grad.data.detach().sign() * eps
 
         # prepare for next iteration
         mask.grad.data.zero_()
@@ -54,29 +54,7 @@ def fa(model: torch.nn.Module, image: torch.Tensor, steps: int,
     return (image + mask).detach()
 
 
-def find_threshold(activations: torch.tensor, standard_deviations: int = 1) -> float:
-    '''
-    Find the threshold that filters out all activations but those 
-    ``standard_deviations`` greater than the mean.
-    If one were to filter ``activations`` by ``[activations > t]``, it
-    would result in the 50 / 16 / 2.5 / 0.015 % highest numbers, depending on
-    0/1/2/3 ``standard_deviations``.
-
-    Args:
-        activations (torch.tensor): tensor of any shape
-        standard_deviations (int, optional): number of STDs to filter out. Defaults to 1.
-
-    Returns:
-        float: threshold to filter the tensor
-    '''
-    assert standard_deviations in range(3+1), \
-        f'Invalid standard deviations; expected in [0,1,2,3], found {standard_deviations}'
-
-    q = quantiles[standard_deviations]
-    return torch.quantile(activations.flatten(), q).item()
-
-
-def l1_loss(y_pred: torch.tensor, threshold=None) -> torch.Tensor:
+def l1_loss(y_pred: torch.tensor) -> torch.Tensor:
     '''
     Basic L1 loss with 0 targets.
     This method calls torch.nn.L1Loss() with parameters y_pred and 0
