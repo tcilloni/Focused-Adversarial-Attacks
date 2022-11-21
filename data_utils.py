@@ -76,7 +76,7 @@ class ImageHandler():
             raise Exception('Must specify a model name or a transformation')
 
 
-    def load(self, fname: str) -> torch.Tensor:
+    def load(self, fname: str, return_padding: bool = False) -> torch.Tensor:
         '''
         Load an image from file given its filename.
         The image is first loaded in PIL RGB mode, then the object
@@ -85,6 +85,7 @@ class ImageHandler():
 
         Args:
             fname (str): relative or absolute path to image file
+            return_padding (bool, Optional): return padded pixels?. Defaults to False.
 
         Returns:
             torch.Tensor: batch of size 1 with image tensor
@@ -98,7 +99,7 @@ class ImageHandler():
             pad_w = 32 - self.w % 32 if self.w % 32 != 0 else 0
             pad_h = 32 - self.h % 32 if self.h % 32 != 0 else 0
             image = T.Pad((0,0,pad_w,pad_h))(image) # pad left, top, right, bottom
-            return image, (pad_h, pad_w)
+            if return_padding: return image, (pad_h, pad_w)
         
         return image
 
